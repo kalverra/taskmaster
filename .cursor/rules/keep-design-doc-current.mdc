@@ -1,0 +1,25 @@
+---
+description: Keep design.md up to date when making structural changes to the project
+globs: "**/*.go"
+alwaysApply: false
+---
+
+# Keep design.md Current
+
+When making changes that affect the project's architecture, update `design.md` to reflect them. This includes:
+
+- Adding, removing, or renaming CLI commands in `cmd/`
+- Adding, removing, or renaming packages under `internal/`
+- Changing the `DataSource` interface or `DataItem` struct in `internal/source/source.go`
+- Adding new data sources under `internal/source/`
+- Changing the cache schema in `internal/cache/cache.go`
+- Changing config structure in `internal/config/config.go`
+- Switching LLM providers or modifying the LLM client interface in `internal/llm/`
+
+When updating `design.md`:
+
+- Keep the mermaid diagrams accurate (architecture, sequence, class)
+- DO NOT add any overview of file structure, this is redundant
+- Update the command reference table if commands changed
+- Update the cache schema table if columns changed
+- Keep descriptions concise; this is a quick-reference design doc, not prose

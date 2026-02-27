@@ -49,6 +49,6 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/kalverra/go-cli-template
+        - github.com/kalverra/taskmaster
     golines:
       max-len: 120

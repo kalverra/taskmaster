@@ -1,7 +1,7 @@
 // Package main launches the CLI application.
 package main
 
-import "github.com/kalverra/go-cli-template/cmd"
+import "github.com/kalverra/taskmaster/cmd"
 
 func main() {
 	cmd.Execute()
