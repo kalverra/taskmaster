@@ -1,0 +1,12 @@
+---
+description: Reference latest API docs when modifying client code
+globs: **/client.go
+alwaysApply: false
+---
+
+# Reference Latest API Docs
+
+When making changes to any `client.go` file, always use the WebSearch or WebFetch tools to look up the latest official API documentation for the service being called. Verify that endpoints, request/response schemas, authentication methods, and query parameters match the current API spec before writing or modifying code.
+
+- Jira: https://developer.atlassian.com/cloud/jira/platform/rest/v3
+- Todoist: https://developer.todoist.com/api/v1/

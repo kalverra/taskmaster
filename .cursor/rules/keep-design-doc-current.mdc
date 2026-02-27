@@ -1,9 +1,7 @@
 ---
-description: Keep design.md up to date when making structural changes to the project
-globs: "**/*.go"
+globs: **/^(*_test).go
 alwaysApply: false
 ---
-
 # Keep design.md Current
 
 When making changes that affect the project's architecture, update `design.md` to reflect them. This includes:

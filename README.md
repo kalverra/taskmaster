@@ -69,12 +69,12 @@ taskmaster suggest
 
 ### Commands
 
-| Command | Description | Default Range |
-|---------|-------------|---------------|
-| `gather` | Fetch from all configured sources and cache locally | `day` |
-| `standup` | Generate a daily standup update | `day` |
-| `summary` | Generate a high-level accomplishment summary | `week` |
-| `suggest` | Suggest priorities and time allocation | `week` |
+| Command   | Description                                         | Default Range |
+| --------- | --------------------------------------------------- | ------------- |
+| `gather`  | Fetch from all configured sources and cache locally | `day`         |
+| `standup` | Generate a daily standup update                     | `day`         |
+| `summary` | Generate a high-level accomplishment summary        | `week`        |
+| `suggest` | Suggest priorities and time allocation              | `week`        |
 
 The `--range` / `-r` flag accepts `day`, `week`, `month`, or `quarter`.
 
