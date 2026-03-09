@@ -51,6 +51,19 @@ type ProjectsResponse struct {
 	NextCursor *string   `json:"next_cursor"`
 }
 
+// Section represents a Todoist project section (e.g. "To Do", "In Progress").
+type Section struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	ProjectID string `json:"project_id"`
+}
+
+// SectionsResponse is the response for GET /api/v1/sections (cursor-paginated).
+type SectionsResponse struct {
+	Results    []Section `json:"results"`
+	NextCursor *string   `json:"next_cursor"`
+}
+
 // Comment represents a Todoist task comment.
 type Comment struct {
 	ID       string `json:"id"`

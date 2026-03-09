@@ -5,6 +5,7 @@ import "context"
 // FakeClient implements Client for testing.
 type FakeClient struct {
 	GetProjectsFn       func(ctx context.Context, cursor string, limit int) (*ProjectsResponse, error)
+	GetSectionsFn       func(ctx context.Context, cursor string, limit int) (*SectionsResponse, error)
 	GetActiveTasksFn    func(ctx context.Context, cursor string, limit int) (*TasksResponse, error)
 	GetCompletedTasksFn func(ctx context.Context, since, until, cursor string, limit int) (*CompletedTasksResponse, error)
 	GetCommentsFn       func(ctx context.Context, taskID, cursor string, limit int) (*CommentsResponse, error)
@@ -16,6 +17,14 @@ func (f *FakeClient) GetProjects(ctx context.Context, cursor string, limit int) 
 		return f.GetProjectsFn(ctx, cursor, limit)
 	}
 	return &ProjectsResponse{}, nil
+}
+
+// GetSections delegates to GetSectionsFn if set, otherwise returns an empty response.
+func (f *FakeClient) GetSections(ctx context.Context, cursor string, limit int) (*SectionsResponse, error) {
+	if f.GetSectionsFn != nil {
+		return f.GetSectionsFn(ctx, cursor, limit)
+	}
+	return &SectionsResponse{}, nil
 }
 
 // GetActiveTasks delegates to GetActiveTasksFn if set, otherwise returns an empty response.

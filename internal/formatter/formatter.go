@@ -172,6 +172,9 @@ func writeTaskSection(b *strings.Builder, title string, items []source.DataItem)
 		heading.WriteString(item.Title)
 
 		var details []string
+		if section, ok := item.Metadata["section_name"]; ok && section != "" {
+			details = append(details, section)
+		}
 		if priority, ok := item.Metadata["priority"]; ok && priority != "1" {
 			details = append(details, "priority "+priority)
 		}
