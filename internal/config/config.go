@@ -16,7 +16,14 @@ type Config struct {
 	Jira     JiraConfig    `mapstructure:"jira"`
 	Notion   NotionConfig  `mapstructure:"notion"`
 	Gemini   GeminiConfig  `mapstructure:"gemini"`
+	Git      GitConfig     `mapstructure:"git"`
 	CacheDir string        `mapstructure:"cache_dir"`
+}
+
+// GitConfig holds git commit history configuration.
+type GitConfig struct {
+	ScanDirs []string `mapstructure:"scan_dirs"`
+	Author   string   `mapstructure:"author"`
 }
 
 // TodoistConfig holds Todoist API configuration.

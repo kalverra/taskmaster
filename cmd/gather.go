@@ -10,6 +10,7 @@ import (
 	"github.com/kalverra/taskmaster/internal/cache"
 	"github.com/kalverra/taskmaster/internal/config"
 	"github.com/kalverra/taskmaster/internal/source"
+	"github.com/kalverra/taskmaster/internal/source/git"
 	"github.com/kalverra/taskmaster/internal/source/jira"
 	"github.com/kalverra/taskmaster/internal/source/slack"
 	"github.com/kalverra/taskmaster/internal/source/todoist"
@@ -82,6 +83,9 @@ func buildSources(cfg *config.Config) []source.DataSource {
 	}
 	if cfg.Jira.BaseURL != "" && cfg.Jira.APIToken != "" {
 		sources = append(sources, jira.New(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken))
+	}
+	if len(cfg.Git.ScanDirs) > 0 {
+		sources = append(sources, git.New(cfg.Git.ScanDirs, cfg.Git.Author))
 	}
 
 	return sources

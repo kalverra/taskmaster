@@ -22,7 +22,9 @@ func FormatStandup(items []source.DataItem) string {
 	completedLabel, doneDescription := completedSectionMeta(lastWorkday, now)
 
 	var b strings.Builder
-	b.WriteString("You are an assistant that generates concise daily standup updates.\n\n")
+	b.WriteString(
+		"You are an assistant that generates concise daily standup updates. Your audience is a direct or skip-level manager.\n\n",
+	)
 	fmt.Fprintf(&b, "Today is %s.\n\n", now.Format("Monday, January 2, 2006"))
 	b.WriteString("Based on the following activity data, generate a standup update with two sections:\n")
 	fmt.Fprintf(&b, "1. **What I did %s** - summarize completed and progressed work\n", doneDescription)
@@ -35,8 +37,9 @@ func FormatStandup(items []source.DataItem) string {
 	)
 	b.WriteString("---\n\n")
 
-	writeSection(&b, completedLabel, filterByTypeAndTime(grouped, "task_completed", lastWorkday, now))
-	writeSection(&b, "Active Tasks", filterByType(grouped, "task_active"))
+	writeTaskSection(&b, completedLabel, filterByTypeAndTime(grouped, "task_completed", lastWorkday, now))
+	writeTaskSection(&b, "Active Tasks", filterByType(grouped, "task_active"))
+	writeCommitSection(&b, "Code Changes", filterByType(grouped, "commit"))
 	writeSection(&b, "Conversations", filterByType(grouped, "conversation"))
 	writeSection(&b, "Journal Entries", filterByType(grouped, "journal"))
 
@@ -90,8 +93,9 @@ func FormatSummary(items []source.DataItem, rangeLabel string) string {
 	)
 	b.WriteString("---\n\n")
 
-	writeSection(&b, "Completed Tasks", filterByType(grouped, "task_completed"))
-	writeSection(&b, "Active Tasks", filterByType(grouped, "task_active"))
+	writeTaskSection(&b, "Completed Tasks", filterByType(grouped, "task_completed"))
+	writeTaskSection(&b, "Active Tasks", filterByType(grouped, "task_active"))
+	writeCommitSection(&b, "Code Changes", filterByType(grouped, "commit"))
 	writeSection(&b, "Conversations", filterByType(grouped, "conversation"))
 	writeSection(&b, "Journal Entries", filterByType(grouped, "journal"))
 
@@ -115,8 +119,9 @@ func FormatSuggestions(items []source.DataItem) string {
 	b.WriteString("Consider due dates, task priorities, project groupings, and recent momentum.\n\n")
 	b.WriteString("---\n\n")
 
-	writeSection(&b, "Active Tasks", filterByType(grouped, "task_active"))
-	writeSection(&b, "Recently Completed", filterByType(grouped, "task_completed"))
+	writeTaskSection(&b, "Active Tasks", filterByType(grouped, "task_active"))
+	writeTaskSection(&b, "Recently Completed", filterByType(grouped, "task_completed"))
+	writeCommitSection(&b, "Code Changes", filterByType(grouped, "commit"))
 	writeSection(&b, "Conversations", filterByType(grouped, "conversation"))
 	writeSection(&b, "Journal Entries", filterByType(grouped, "journal"))
 
@@ -156,6 +161,77 @@ func filterByTypeAndTime(
 	return filtered
 }
 
+func writeTaskSection(b *strings.Builder, title string, items []source.DataItem) {
+	if len(items) == 0 {
+		return
+	}
+
+	fmt.Fprintf(b, "## %s\n\n", title)
+	for _, item := range items {
+		var heading strings.Builder
+		heading.WriteString(item.Title)
+
+		var details []string
+		if priority, ok := item.Metadata["priority"]; ok && priority != "1" {
+			details = append(details, "priority "+priority)
+		}
+		if due, ok := item.Metadata["due"]; ok {
+			details = append(details, "due: "+due)
+		}
+		if labels, ok := item.Metadata["labels"]; ok {
+			details = append(details, "labels: "+labels)
+		}
+		if item.Source != "" {
+			details = append(details, "source: "+item.Source)
+		}
+
+		if len(details) > 0 {
+			fmt.Fprintf(&heading, " (%s)", strings.Join(details, ", "))
+		}
+
+		fmt.Fprintf(b, "### %s\n\n", heading.String())
+
+		if item.Content != "" {
+			fmt.Fprintf(b, "%s\n\n", item.Content)
+		}
+
+		if comments, ok := item.Metadata["comments"]; ok && comments != "" {
+			b.WriteString("#### Comments\n\n")
+			for line := range strings.SplitSeq(comments, "\n") {
+				fmt.Fprintf(b, "- %s\n", line)
+			}
+			b.WriteString("\n")
+		}
+	}
+}
+
+func writeCommitSection(b *strings.Builder, title string, items []source.DataItem) {
+	if len(items) == 0 {
+		return
+	}
+
+	fmt.Fprintf(b, "## %s\n\n", title)
+
+	byRepo := make(map[string][]source.DataItem)
+	var repoOrder []string
+	for _, item := range items {
+		repo := item.Metadata["repo"]
+		if _, seen := byRepo[repo]; !seen {
+			repoOrder = append(repoOrder, repo)
+		}
+		byRepo[repo] = append(byRepo[repo], item)
+	}
+
+	for _, repo := range repoOrder {
+		fmt.Fprintf(b, "### %s\n\n", repo)
+		for _, item := range byRepo[repo] {
+			dateFmt := item.Timestamp.Format("2006-01-02")
+			fmt.Fprintf(b, "- %s (%s)\n", item.Title, dateFmt)
+		}
+		b.WriteString("\n")
+	}
+}
+
 func writeSection(b *strings.Builder, title string, items []source.DataItem) {
 	if len(items) == 0 {
 		return
@@ -167,34 +243,10 @@ func writeSection(b *strings.Builder, title string, items []source.DataItem) {
 		if item.Content != "" {
 			fmt.Fprintf(b, ": %s", item.Content)
 		}
-
-		var details []string
-		if item.Source != "" {
-			details = append(details, "source: "+item.Source)
-		}
-		if due, ok := item.Metadata["due"]; ok {
-			details = append(details, "due: "+due)
-		}
-		if priority, ok := item.Metadata["priority"]; ok && priority != "1" {
-			details = append(details, "priority: "+priority)
-		}
-		if labels, ok := item.Metadata["labels"]; ok {
-			details = append(details, "labels: "+labels)
-		}
 		if !item.Timestamp.IsZero() {
-			details = append(details, "at: "+item.Timestamp.Format(time.RFC822))
-		}
-
-		if len(details) > 0 {
-			fmt.Fprintf(b, " (%s)", strings.Join(details, ", "))
+			fmt.Fprintf(b, " (%s)", item.Timestamp.Format(time.RFC822))
 		}
 		b.WriteString("\n")
-
-		if comments, ok := item.Metadata["comments"]; ok && comments != "" {
-			for line := range strings.SplitSeq(comments, "\n") {
-				fmt.Fprintf(b, "  - %s\n", line)
-			}
-		}
 	}
 	b.WriteString("\n")
 }
