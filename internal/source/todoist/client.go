@@ -1,56 +1,206 @@
-// Package todoist fetches task activity from the Todoist API.
+// Package todoist fetches task activity from the Todoist REST API v1.
+// API docs: https://developer.todoist.com/api/v1/
 package todoist
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rs/zerolog"
+	"resty.dev/v3"
 
 	"github.com/kalverra/taskmaster/internal/source"
 )
 
 const (
-	restBaseURL = "https://api.todoist.com/rest/v2"
-	syncBaseURL = "https://api.todoist.com/sync/v9"
-	sourceName  = "todoist"
+	apiBaseURL = "https://api.todoist.com/api/v1"
+	sourceName = "todoist"
 
-	completedPageSize = 200
+	defaultPageSize = 200
 )
+
+// Client defines the interface for Todoist API operations.
+type Client interface {
+	GetProjects(ctx context.Context, cursor string, limit int) (*ProjectsResponse, error)
+	GetActiveTasks(ctx context.Context, cursor string, limit int) (*TasksResponse, error)
+	GetCompletedTasks(ctx context.Context, since, until, cursor string, limit int) (*CompletedTasksResponse, error)
+	GetComments(ctx context.Context, taskID, cursor string, limit int) (*CommentsResponse, error)
+	Close()
+}
+
+// restyClient implements Client using resty and the Todoist REST API v1.
+type restyClient struct {
+	resty *resty.Client
+	log   zerolog.Logger
+}
+
+// NewClient creates a Todoist API client.
+func NewClient(apiToken string, log zerolog.Logger) Client {
+	log = log.With().Str("source", sourceName).Logger()
+
+	r := resty.New()
+	r.SetBaseURL(apiBaseURL).
+		SetAuthToken(apiToken).
+		SetHeader("Accept", "application/json").
+		SetTimeout(30 * time.Second).
+		AddRequestMiddleware(source.RestyRequestLogger(log)).
+		AddResponseMiddleware(source.RestyResponseLogger(log))
+	return &restyClient{resty: r, log: log}
+}
+
+func (c *restyClient) Close() {
+	_ = c.resty.Close()
+}
+
+// GetProjects calls GET /api/v1/projects with cursor-based pagination.
+func (c *restyClient) GetProjects(ctx context.Context, cursor string, limit int) (*ProjectsResponse, error) {
+	params := map[string]string{
+		"limit": strconv.Itoa(limit),
+	}
+	if cursor != "" {
+		params["cursor"] = cursor
+	}
+
+	var result ProjectsResponse
+	resp, err := c.resty.R().
+		SetContext(ctx).
+		SetQueryParams(params).
+		SetResult(&result).
+		Get("/projects")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get projects: %w", err)
+	}
+
+	if resp.IsError() {
+		return nil, fmt.Errorf("failed to get projects: %d: %s", resp.StatusCode(), resp.String())
+	}
+
+	return &result, nil
+}
+
+// GetActiveTasks calls GET /api/v1/tasks with cursor-based pagination.
+func (c *restyClient) GetActiveTasks(ctx context.Context, cursor string, limit int) (*TasksResponse, error) {
+	params := map[string]string{
+		"limit": strconv.Itoa(limit),
+	}
+	if cursor != "" {
+		params["cursor"] = cursor
+	}
+
+	var result TasksResponse
+	resp, err := c.resty.R().
+		SetContext(ctx).
+		SetQueryParams(params).
+		SetResult(&result).
+		Get("/tasks")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active tasks: %w", err)
+	}
+
+	if resp.IsError() {
+		return nil, fmt.Errorf("failed to get active tasks: %d: %s", resp.StatusCode(), resp.String())
+	}
+
+	return &result, nil
+}
+
+// GetCompletedTasks calls GET /api/v1/tasks/completed/by_completion_date.
+func (c *restyClient) GetCompletedTasks(
+	ctx context.Context,
+	since, until, cursor string,
+	limit int,
+) (*CompletedTasksResponse, error) {
+	params := map[string]string{
+		"since": since,
+		"until": until,
+		"limit": strconv.Itoa(limit),
+	}
+	if cursor != "" {
+		params["cursor"] = cursor
+	}
+
+	var result CompletedTasksResponse
+	resp, err := c.resty.R().
+		SetContext(ctx).
+		SetQueryParams(params).
+		SetResult(&result).
+		Get("/tasks/completed/by_completion_date")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get completed tasks: %w", err)
+	}
+
+	if resp.IsError() {
+		return nil, fmt.Errorf("failed to get completed tasks: %d: %s", resp.StatusCode(), resp.String())
+	}
+
+	return &result, nil
+}
+
+// GetComments calls GET /api/v1/comments with cursor-based pagination for a specific task.
+func (c *restyClient) GetComments(ctx context.Context, taskID, cursor string, limit int) (*CommentsResponse, error) {
+	params := map[string]string{
+		"task_id": taskID,
+		"limit":   strconv.Itoa(limit),
+	}
+	if cursor != "" {
+		params["cursor"] = cursor
+	}
+
+	var result CommentsResponse
+	resp, err := c.resty.R().
+		SetContext(ctx).
+		SetQueryParams(params).
+		SetResult(&result).
+		Get("/comments")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get comments for task %s: %w", taskID, err)
+	}
+
+	if resp.IsError() {
+		return nil, fmt.Errorf("failed to get comments for task %s: %d: %s", taskID, resp.StatusCode(), resp.String())
+	}
+
+	return &result, nil
+}
 
 // Source implements source.DataSource for Todoist.
 type Source struct {
-	apiToken   string
-	httpClient *http.Client
+	client Client
 }
 
-// New creates a Todoist data source with the given API token.
+// New creates a Todoist data source with the default resty-based client.
 func New(apiToken string) *Source {
-	return &Source{
-		apiToken:   apiToken,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
-	}
+	log := zerolog.Nop()
+	return &Source{client: NewClient(apiToken, log)}
 }
 
-// Name returns the source identifier.
+// NewWithClient creates a Todoist data source with a provided client (useful for testing).
+func NewWithClient(client Client) *Source {
+	return &Source{client: client}
+}
+
+// Name returns the name of this data source.
 func (s *Source) Name() string { return sourceName }
 
 // Fetch retrieves active and completed tasks from Todoist within the given time range.
 func (s *Source) Fetch(ctx context.Context, tr source.TimeRange) ([]source.DataItem, error) {
+	projectMap, err := s.fetchProjectMap(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("fetching projects: %w", err)
+	}
+
 	var allItems []source.DataItem
 
-	active, err := s.fetchActiveTasks(ctx)
+	active, err := s.fetchActiveTasks(ctx, projectMap)
 	if err != nil {
 		return nil, fmt.Errorf("fetching active tasks: %w", err)
 	}
 	allItems = append(allItems, active...)
 
-	completed, err := s.fetchCompletedTasks(ctx, tr)
+	completed, err := s.fetchCompletedTasks(ctx, tr, projectMap)
 	if err != nil {
 		return nil, fmt.Errorf("fetching completed tasks: %w", err)
 	}
@@ -59,153 +209,158 @@ func (s *Source) Fetch(ctx context.Context, tr source.TimeRange) ([]source.DataI
 	return allItems, nil
 }
 
-type restTask struct {
-	ID          string   `json:"id"`
-	Content     string   `json:"content"`
-	Description string   `json:"description"`
-	ProjectID   string   `json:"project_id"`
-	SectionID   string   `json:"section_id"`
-	Priority    int      `json:"priority"`
-	Labels      []string `json:"labels"`
-	CreatedAt   string   `json:"created_at"`
-	Due         *restDue `json:"due"`
-	URL         string   `json:"url"`
-}
-
-type restDue struct {
-	Date      string `json:"date"`
-	Datetime  string `json:"datetime"`
-	String    string `json:"string"`
-	Recurring bool   `json:"is_recurring"`
-}
-
-func (s *Source) fetchActiveTasks(ctx context.Context) ([]source.DataItem, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, restBaseURL+"/tasks", nil)
-	if err != nil {
-		return nil, err
-	}
-	s.setAuth(req)
-
-	resp, err := s.httpClient.Do(req) //nolint:gosec // URL is a known constant
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close() //nolint:errcheck // best-effort cleanup
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("todoist REST API returned %d: %s", resp.StatusCode, string(body))
-	}
-
-	var tasks []restTask
-	if err := json.NewDecoder(resp.Body).Decode(&tasks); err != nil {
-		return nil, fmt.Errorf("decoding active tasks: %w", err)
-	}
-
-	items := make([]source.DataItem, 0, len(tasks))
-	for _, t := range tasks {
-		created, _ := time.Parse(time.RFC3339, t.CreatedAt)
-		meta := map[string]string{
-			"project_id": t.ProjectID,
-			"priority":   strconv.Itoa(t.Priority),
-			"url":        t.URL,
-		}
-		if len(t.Labels) > 0 {
-			meta["labels"] = strings.Join(t.Labels, ",")
-		}
-		if t.Due != nil {
-			meta["due"] = t.Due.String
-			if t.Due.Recurring {
-				meta["recurring"] = "true"
-			}
-		}
-
-		items = append(items, source.DataItem{
-			ID:        t.ID,
-			Source:    sourceName,
-			Type:      "task_active",
-			Title:     t.Content,
-			Content:   t.Description,
-			Metadata:  meta,
-			Timestamp: created,
-		})
-	}
-
-	return items, nil
-}
-
-type completedResponse struct {
-	Items []completedItem `json:"items"`
-}
-
-type completedItem struct {
-	ID          string `json:"id"`
-	TaskID      string `json:"task_id"`
-	Content     string `json:"content"`
-	ProjectID   string `json:"project_id"`
-	SectionID   string `json:"section_id"`
-	CompletedAt string `json:"completed_at"`
-}
-
-func (s *Source) fetchCompletedTasks(ctx context.Context, tr source.TimeRange) ([]source.DataItem, error) {
-	var allItems []source.DataItem
-	offset := 0
+func (s *Source) fetchProjectMap(ctx context.Context) (map[string]string, error) {
+	projects := make(map[string]string)
+	var cursor string
 
 	for {
-		params := url.Values{}
-		params.Set("since", tr.Start.Format("2006-1-2T15:04:05"))
-		params.Set("until", tr.End.Format("2006-1-2T15:04:05"))
-		params.Set("limit", strconv.Itoa(completedPageSize))
-		params.Set("offset", strconv.Itoa(offset))
-
-		reqURL := syncBaseURL + "/completed/get_all?" + params.Encode()
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+		resp, err := s.client.GetProjects(ctx, cursor, defaultPageSize)
 		if err != nil {
 			return nil, err
 		}
-		s.setAuth(req)
 
-		resp, err := s.httpClient.Do(req) //nolint:gosec // URL built from known constants
+		for _, p := range resp.Results {
+			projects[p.ID] = p.Name
+		}
+
+		if resp.NextCursor == nil || *resp.NextCursor == "" {
+			break
+		}
+		cursor = *resp.NextCursor
+	}
+
+	return projects, nil
+}
+
+// fetchComments retrieves all comments for a task and returns them as a
+// newline-separated string with each line formatted as "YYYY-MM-DD: content".
+// Returns an empty string if the task has no comments.
+func (s *Source) fetchComments(ctx context.Context, taskID string) (string, error) {
+	var lines []string
+	var cursor string
+
+	for {
+		resp, err := s.client.GetComments(ctx, taskID, cursor, defaultPageSize)
+		if err != nil {
+			return "", err
+		}
+
+		for _, c := range resp.Results {
+			datePart := c.PostedAt
+			if t, err := time.Parse(time.RFC3339, c.PostedAt); err == nil {
+				datePart = t.Local().Format("2006-01-02")
+			}
+			lines = append(lines, datePart+": "+c.Content)
+		}
+
+		if resp.NextCursor == nil || *resp.NextCursor == "" {
+			break
+		}
+		cursor = *resp.NextCursor
+	}
+
+	return strings.Join(lines, "\n"), nil
+}
+
+func (s *Source) fetchActiveTasks(ctx context.Context, projectMap map[string]string) ([]source.DataItem, error) {
+	var allItems []source.DataItem
+	var cursor string
+
+	for {
+		resp, err := s.client.GetActiveTasks(ctx, cursor, defaultPageSize)
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close() //nolint:errcheck // best-effort cleanup
 
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("todoist Sync API returned %d: %s", resp.StatusCode, string(body))
-		}
+		for _, t := range resp.Results {
+			addedAt, _ := time.Parse(time.RFC3339, t.AddedAt)
+			meta := map[string]string{
+				"project_id":   t.ProjectID,
+				"project_name": projectMap[t.ProjectID],
+				"priority":     strconv.Itoa(t.Priority),
+			}
+			if len(t.Labels) > 0 {
+				meta["labels"] = strings.Join(t.Labels, ",")
+			}
+			if t.Due != nil {
+				meta["due"] = t.Due.String
+				if t.Due.Recurring {
+					meta["recurring"] = "true"
+				}
+			}
 
-		var cr completedResponse
-		if err := json.NewDecoder(resp.Body).Decode(&cr); err != nil {
-			return nil, fmt.Errorf("decoding completed tasks: %w", err)
-		}
+			if comments, err := s.fetchComments(ctx, t.ID); err == nil && comments != "" {
+				meta["comments"] = comments
+			}
 
-		for _, c := range cr.Items {
-			completedAt, _ := time.Parse(time.RFC3339Nano, c.CompletedAt)
 			allItems = append(allItems, source.DataItem{
-				ID:     c.ID,
-				Source: sourceName,
-				Type:   "task_completed",
-				Title:  c.Content,
-				Metadata: map[string]string{
-					"task_id":    c.TaskID,
-					"project_id": c.ProjectID,
-					"section_id": c.SectionID,
-				},
-				Timestamp: completedAt,
+				ID:        t.ID,
+				Source:    sourceName,
+				Type:      "task_active",
+				Title:     t.Content,
+				Content:   t.Description,
+				Metadata:  meta,
+				Timestamp: addedAt,
 			})
 		}
 
-		if len(cr.Items) < completedPageSize {
+		if resp.NextCursor == nil || *resp.NextCursor == "" {
 			break
 		}
-		offset += completedPageSize
+		cursor = *resp.NextCursor
 	}
 
 	return allItems, nil
 }
 
-func (s *Source) setAuth(req *http.Request) {
-	req.Header.Set("Authorization", "Bearer "+s.apiToken)
+func (s *Source) fetchCompletedTasks(
+	ctx context.Context,
+	tr source.TimeRange,
+	projectMap map[string]string,
+) ([]source.DataItem, error) {
+	since := tr.Start.Format(time.RFC3339)
+	until := tr.End.Format(time.RFC3339)
+
+	var allItems []source.DataItem
+	var cursor string
+
+	for {
+		resp, err := s.client.GetCompletedTasks(ctx, since, until, cursor, defaultPageSize)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, t := range resp.Items {
+			var completedAt time.Time
+			if t.CompletedAt != nil {
+				completedAt, _ = time.Parse(time.RFC3339, *t.CompletedAt)
+			}
+
+			meta := map[string]string{
+				"project_id":   t.ProjectID,
+				"project_name": projectMap[t.ProjectID],
+				"section_id":   t.SectionID,
+			}
+
+			if comments, err := s.fetchComments(ctx, t.ID); err == nil && comments != "" {
+				meta["comments"] = comments
+			}
+
+			allItems = append(allItems, source.DataItem{
+				ID:        t.ID,
+				Source:    sourceName,
+				Type:      "task_completed",
+				Title:     t.Content,
+				Metadata:  meta,
+				Timestamp: completedAt,
+			})
+		}
+
+		if resp.NextCursor == nil || *resp.NextCursor == "" {
+			break
+		}
+		cursor = *resp.NextCursor
+	}
+
+	return allItems, nil
 }

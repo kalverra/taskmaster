@@ -1,41 +1,78 @@
-// Package slack fetches conversation data from the Slack API.
+// Package slack fetches conversation data from the Slack API using the slack-go package.
+// API docs: https://docs.slack.dev/reference/methods/search.messages/
 package slack
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"time"
+
+	"github.com/rs/zerolog"
+	slackapi "github.com/slack-go/slack"
 
 	"github.com/kalverra/taskmaster/internal/source"
 )
 
-const (
-	apiBaseURL = "https://slack.com/api"
-	sourceName = "slack"
-)
+const sourceName = "slack"
 
-// Source implements source.DataSource for Slack.
-type Source struct {
-	userToken  string
-	userID     string
-	httpClient *http.Client
+// Client defines the interface for Slack API operations.
+type Client interface {
+	SearchMessages(
+		ctx context.Context,
+		query string,
+		params slackapi.SearchParameters,
+	) (*slackapi.SearchMessages, error)
 }
 
-// New creates a Slack data source. userToken must be a user-scoped OAuth token
-// with scopes like search:read, channels:history, im:history.
-func New(userToken, userID string) *Source {
-	return &Source{
-		userToken:  userToken,
-		userID:     userID,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+// slackGoClient implements Client using the slack-go/slack package.
+type slackGoClient struct {
+	api *slackapi.Client
+	log zerolog.Logger
+}
+
+// NewClient creates a Slack API client wrapping slack-go.
+func NewClient(userToken string, log zerolog.Logger) Client {
+	httpClient := source.NewLoggingClient(log)
+	return &slackGoClient{
+		api: slackapi.New(userToken, slackapi.OptionHTTPClient(&httpClient)),
+		log: log,
 	}
 }
 
-// Name returns the source identifier.
+func (c *slackGoClient) SearchMessages(
+	ctx context.Context,
+	query string,
+	params slackapi.SearchParameters,
+) (*slackapi.SearchMessages, error) {
+	msgs, err := c.api.SearchMessagesContext(ctx, query, params)
+	if err != nil {
+		return nil, fmt.Errorf("slack search.messages: %w", err)
+	}
+
+	return msgs, nil
+}
+
+// Source implements source.DataSource for Slack.
+type Source struct {
+	client Client
+	userID string
+}
+
+// New creates a Slack data source with the default slack-go client.
+func New(userToken, userID string) *Source {
+	log := zerolog.Nop()
+	return &Source{
+		client: NewClient(userToken, log),
+		userID: userID,
+	}
+}
+
+// NewWithClient creates a Slack data source with a provided client (useful for testing).
+func NewWithClient(client Client, userID string) *Source {
+	return &Source{client: client, userID: userID}
+}
+
+// Name returns the name of this data source.
 func (s *Source) Name() string { return sourceName }
 
 // Fetch retrieves messages from Slack where the user participated within the given time range.
@@ -50,40 +87,19 @@ func (s *Source) Fetch(ctx context.Context, tr source.TimeRange) ([]source.DataI
 	page := 1
 
 	for {
-		params := url.Values{}
-		params.Set("query", query)
-		params.Set("sort", "timestamp")
-		params.Set("count", "100")
-		params.Set("page", fmt.Sprintf("%d", page))
+		params := slackapi.SearchParameters{
+			Sort:          "timestamp",
+			SortDirection: "desc",
+			Count:         100,
+			Page:          page,
+		}
 
-		reqURL := apiBaseURL + "/search.messages?" + params.Encode()
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+		msgs, err := s.client.SearchMessages(ctx, query, params)
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("Authorization", "Bearer "+s.userToken)
 
-		resp, err := s.httpClient.Do(req) //nolint:gosec // URL built from known constants
-		if err != nil {
-			return nil, fmt.Errorf("slack API request: %w", err)
-		}
-		defer resp.Body.Close() //nolint:errcheck // best-effort cleanup
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("slack API returned %d: %s", resp.StatusCode, string(body))
-		}
-
-		var sr searchResponse
-		if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
-			return nil, fmt.Errorf("decoding slack response: %w", err)
-		}
-
-		if !sr.OK {
-			return nil, fmt.Errorf("slack API error: %s", sr.Error)
-		}
-
-		for _, msg := range sr.Messages.Matches {
+		for _, msg := range msgs.Matches {
 			ts, _ := parseSlackTimestamp(msg.Timestamp)
 			allItems = append(allItems, source.DataItem{
 				ID:      msg.Timestamp,
@@ -101,36 +117,13 @@ func (s *Source) Fetch(ctx context.Context, tr source.TimeRange) ([]source.DataI
 			})
 		}
 
-		if page >= sr.Messages.Paging.Pages || len(sr.Messages.Matches) == 0 {
+		if page >= msgs.Pages || len(msgs.Matches) == 0 {
 			break
 		}
 		page++
 	}
 
 	return allItems, nil
-}
-
-type searchResponse struct {
-	OK       bool   `json:"ok"`
-	Error    string `json:"error,omitempty"`
-	Messages struct {
-		Matches []searchMatch `json:"matches"`
-		Paging  struct {
-			Pages int `json:"pages"`
-			Total int `json:"total"`
-		} `json:"paging"`
-	} `json:"messages"`
-}
-
-type searchMatch struct {
-	Text      string `json:"text"`
-	Timestamp string `json:"ts"`
-	Username  string `json:"username"`
-	Permalink string `json:"permalink"`
-	Channel   struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	} `json:"channel"`
 }
 
 func parseSlackTimestamp(ts string) (time.Time, error) {

@@ -54,12 +54,14 @@ var summaryCmd = &cobra.Command{
 
 		prompt := formatter.FormatSummary(items, summaryRange)
 
-		ai, err := llm.New(ctx, cfg.Gemini.APIKey, cfg.Gemini.Model)
+		ai, err := llm.New(ctx, cfg.Gemini.APIKey, cfg.Gemini.Model, cfg.Gemini.ConversationLogDir, "summary")
 		if err != nil {
 			return fmt.Errorf("initializing Gemini: %w", err)
 		}
 
+		sp := startSpinner("Generating summary...")
 		result, err := ai.Generate(ctx, prompt)
+		sp.Stop()
 		if err != nil {
 			return fmt.Errorf("generating summary: %w", err)
 		}

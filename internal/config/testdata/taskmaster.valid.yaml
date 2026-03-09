@@ -1,0 +1,19 @@
+gemini:
+  api_token: "gemini-api-token"
+  model: "gemini-3.1-flash-lite-preview" # optional, this is the default
+
+todoist:
+  api_token: "todoist-api-token"
+
+slack:
+  user_token: "slack-user-token"
+  user_id: "slack-user-id"
+
+jira:
+  base_url: "https://jira-base-url"
+  email: "you@example.com"
+  api_token: "jira-api-token"
+
+notion:
+  api_token: "notion-api-token"
+  database_id: "notion-database-id"

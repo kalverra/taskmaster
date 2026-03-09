@@ -45,8 +45,8 @@ notion:
 Every config field can also be set via environment variables with the `TASKMASTER_` prefix and underscores for nesting:
 
 ```sh
-export TASKMASTER_GEMINI_API_KEY="your-key"
-export TASKMASTER_TODOIST_API_TOKEN="your-token"
+export GEMINI_API_KEY="your-key"
+export TODOIST_API_TOKEN="your-token"
 ```
 
 ## Usage
@@ -66,18 +66,3 @@ taskmaster summary --range month
 # Get suggestions on what to work on next
 taskmaster suggest
 ```
-
-### Commands
-
-| Command   | Description                                         | Default Range |
-| --------- | --------------------------------------------------- | ------------- |
-| `gather`  | Fetch from all configured sources and cache locally | `day`         |
-| `standup` | Generate a daily standup update                     | `day`         |
-| `summary` | Generate a high-level accomplishment summary        | `week`        |
-| `suggest` | Suggest priorities and time allocation              | `week`        |
-
-The `--range` / `-r` flag accepts `day`, `week`, `month`, or `quarter`.
-
-## Data Storage
-
-Cached data is stored in a SQLite database at `~/.taskmaster/cache.db`. The cache directory can be changed via the `cache_dir` config field or `TASKMASTER_CACHE_DIR` env var.

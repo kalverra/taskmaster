@@ -11,26 +11,70 @@ import (
 )
 
 // FormatStandup builds a prompt for generating a daily standup update.
+// It dynamically determines the last workday from completed tasks, so
+// Monday or post-vacation standups look back to the most recent day
+// with completed work instead of an empty yesterday.
 func FormatStandup(items []source.DataItem) string {
 	grouped := groupBySource(items)
 	now := time.Now()
-	yesterday := now.AddDate(0, 0, -1)
+
+	lastWorkday := lastCompletedTaskDay(grouped["task_completed"], now)
+	completedLabel, doneDescription := completedSectionMeta(lastWorkday, now)
 
 	var b strings.Builder
 	b.WriteString("You are an assistant that generates concise daily standup updates.\n\n")
 	fmt.Fprintf(&b, "Today is %s.\n\n", now.Format("Monday, January 2, 2006"))
 	b.WriteString("Based on the following activity data, generate a standup update with two sections:\n")
-	b.WriteString("1. **What I did yesterday** - summarize completed and progressed work\n")
+	fmt.Fprintf(&b, "1. **What I did %s** - summarize completed and progressed work\n", doneDescription)
 	b.WriteString("2. **What I'm going to do today** - infer from active tasks, priorities, and due dates\n\n")
-	b.WriteString("Be specific but concise. Use bullet points. Reference actual task names.\n\n")
+	b.WriteString(
+		"3. **What's blocking me?** - list any blockers or dependencies, say just 'None' if there are none\n\n",
+	)
+	b.WriteString(
+		"Be specific but concise. Use bullet points. For tasks that have Jira ticket links, reference them first like so: [TASK-123](https://your-jira-instance.com/browse/TASK-123): I accomplished x and y.\n\n",
+	)
 	b.WriteString("---\n\n")
 
-	writeSection(&b, "Completed Tasks (Yesterday)", filterByTypeAndTime(grouped, "task_completed", yesterday, now))
+	writeSection(&b, completedLabel, filterByTypeAndTime(grouped, "task_completed", lastWorkday, now))
 	writeSection(&b, "Active Tasks", filterByType(grouped, "task_active"))
 	writeSection(&b, "Conversations", filterByType(grouped, "conversation"))
 	writeSection(&b, "Journal Entries", filterByType(grouped, "journal"))
 
 	return b.String()
+}
+
+// lastCompletedTaskDay returns the start-of-day (local time) of the most
+// recent completed task. If there are no completed tasks, it falls back
+// to yesterday.
+func lastCompletedTaskDay(completed []source.DataItem, now time.Time) time.Time {
+	var latest time.Time
+	for _, item := range completed {
+		if item.Timestamp.After(latest) {
+			latest = item.Timestamp
+		}
+	}
+
+	if latest.IsZero() {
+		return now.AddDate(0, 0, -1)
+	}
+
+	y, m, d := latest.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, latest.Location())
+}
+
+// completedSectionMeta returns a section header label and a prompt
+// description fragment based on how far back the last workday was.
+func completedSectionMeta(lastWorkday, now time.Time) (label, description string) {
+	yesterdayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -1)
+
+	if !lastWorkday.Before(yesterdayStart) {
+		return "Completed Tasks (Yesterday)", "yesterday"
+	}
+
+	dayName := lastWorkday.Format("Monday")
+	dateFmt := lastWorkday.Format("January 2")
+	return fmt.Sprintf("Completed Tasks (since %s, %s)", dayName, dateFmt),
+		fmt.Sprintf("since %s, %s", dayName, dateFmt)
 }
 
 // FormatSummary builds a prompt for generating a high-level summary of accomplishments.
@@ -42,7 +86,7 @@ func FormatSummary(items []source.DataItem, rangeLabel string) string {
 	fmt.Fprintf(&b, "Generate a summary of accomplishments for the past %s.\n", rangeLabel)
 	b.WriteString("Organize by theme or project. Highlight key achievements and milestones.\n")
 	b.WriteString(
-		"Keep it concise but comprehensive enough for a manager or stakeholder to understand progress.\n\n",
+		"Stay concise. Your audience is a direct or skip-level manager.\n\n",
 	)
 	b.WriteString("---\n\n")
 
@@ -145,6 +189,12 @@ func writeSection(b *strings.Builder, title string, items []source.DataItem) {
 			fmt.Fprintf(b, " (%s)", strings.Join(details, ", "))
 		}
 		b.WriteString("\n")
+
+		if comments, ok := item.Metadata["comments"]; ok && comments != "" {
+			for line := range strings.SplitSeq(comments, "\n") {
+				fmt.Fprintf(b, "  - %s\n", line)
+			}
+		}
 	}
 	b.WriteString("\n")
 }

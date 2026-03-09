@@ -130,6 +130,7 @@ func (c *Cache) Query(sourceName string, tr source.TimeRange) ([]source.DataItem
 		); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
+		item.Timestamp = item.Timestamp.Local()
 		if err := json.Unmarshal([]byte(metaJSON), &item.Metadata); err != nil {
 			return nil, fmt.Errorf("unmarshaling metadata: %w", err)
 		}

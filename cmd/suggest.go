@@ -53,12 +53,14 @@ var suggestCmd = &cobra.Command{
 
 		prompt := formatter.FormatSuggestions(items)
 
-		ai, err := llm.New(ctx, cfg.Gemini.APIKey, cfg.Gemini.Model)
+		ai, err := llm.New(ctx, cfg.Gemini.APIKey, cfg.Gemini.Model, cfg.Gemini.ConversationLogDir, "suggest")
 		if err != nil {
 			return fmt.Errorf("initializing Gemini: %w", err)
 		}
 
+		sp := startSpinner("Generating suggestions...")
 		result, err := ai.Generate(ctx, prompt)
+		sp.Stop()
 		if err != nil {
 			return fmt.Errorf("generating suggestions: %w", err)
 		}
