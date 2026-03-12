@@ -6,7 +6,7 @@ tool gotest.tools/gotestsum
 
 require (
 	github.com/briandowns/spinner v1.23.2
-	github.com/charmbracelet/fang v0.4.4
+	github.com/charmbracelet/fang v1.0.0
 	github.com/go-git/go-git/v5 v5.17.0
 	github.com/rs/zerolog v1.34.0
 	github.com/slack-go/slack v0.18.0
