@@ -9,7 +9,7 @@ require (
 	github.com/charmbracelet/fang v0.4.4
 	github.com/go-git/go-git/v5 v5.17.0
 	github.com/rs/zerolog v1.34.0
-	github.com/slack-go/slack v0.18.0
+	github.com/slack-go/slack v0.20.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
