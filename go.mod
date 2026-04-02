@@ -7,7 +7,7 @@ tool gotest.tools/gotestsum
 require (
 	github.com/briandowns/spinner v1.23.2
 	github.com/charmbracelet/fang v0.4.4
-	github.com/go-git/go-git/v5 v5.17.0
+	github.com/go-git/go-git/v5 v5.17.2
 	github.com/rs/zerolog v1.34.0
 	github.com/slack-go/slack v0.18.0
 	github.com/spf13/cobra v1.10.2
@@ -38,7 +38,7 @@ require (
 	github.com/clipperhouse/displaywidth v0.4.1 // indirect
 	github.com/clipperhouse/stringish v0.1.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.3.0 // indirect
-	github.com/cloudflare/circl v1.6.1 // indirect
+	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dnephin/pflag v1.0.7 // indirect
