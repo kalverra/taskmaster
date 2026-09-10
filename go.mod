@@ -16,7 +16,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/genai v1.48.0
 	modernc.org/sqlite v1.46.1
-	resty.dev/v3 v3.0.0-beta.6
+	resty.dev/v3 v3.0.0-rc.4
 )
 
 require (
